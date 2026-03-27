@@ -1,0 +1,181 @@
+name: Build MongoDB Driver
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'mongo-c-driver version to build (e.g. 1.29.2)'
+        required: true
+        default: '1.29.2'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  build:
+    name: ${{ matrix.config.os-name }} (${{ matrix.config.arch }})
+    runs-on: ${{ matrix.config.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - os-name: Windows
+            os: windows
+            arch: x64
+            runner: windows-2025
+          - os-name: Windows
+            os: windows
+            arch: arm64
+            runner: windows-11-arm
+          - os-name: Linux
+            os: linux
+            arch: x64
+            runner: ubuntu-24.04
+          - os-name: Linux
+            os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - os-name: Alpine
+            os: alpine
+            arch: x64
+            runner: ubuntu-24.04
+          - os-name: Alpine
+            os: alpine
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - os-name: MacOS
+            os: macos
+            arch: x64
+            runner: macos-15-intel
+          - os-name: MacOS
+            os: macos
+            arch: arm64
+            runner: macos-14
+
+    container:
+      image: ${{ matrix.config.os == 'alpine' && 'alpine:3.20' || '' }}
+
+    steps:
+      - name: Enable JavaScript actions in Alpine containers
+        if: matrix.config.os == 'alpine'
+        uses: laverdet/alpine-arm64@v1
+
+      - name: Checkout mongo-c-driver
+        uses: actions/checkout@v4
+        with:
+          repository: mongodb/mongo-c-driver
+          ref: ${{ github.event.inputs.version }}
+          path: mongo-c-driver
+
+      - name: Install dependencies (Linux)
+        if: matrix.config.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build libssl-dev libsasl2-dev zip
+
+      - name: Install dependencies (Alpine)
+        if: matrix.config.os == 'alpine'
+        run: |
+          apk add --no-cache build-base cmake ninja openssl-dev cyrus-sasl-dev bash zip curl
+
+      - name: Install dependencies (MacOS)
+        if: matrix.config.os == 'macos'
+        run: |
+          brew update
+          brew install cmake ninja openssl zip
+
+      - name: Set up Visual Studio (Windows)
+        if: matrix.config.os == 'windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.config.arch }}
+
+      - name: Configure and Build (Windows)
+        if: matrix.config.os == 'windows'
+        shell: pwsh
+        run: |
+          cd mongo-c-driver
+          mkdir build
+          cd build
+          cmake -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DENABLE_STATIC=OFF `
+            -DENABLE_TESTS=OFF `
+            -DENABLE_EXAMPLES=OFF `
+            -DENABLE_MONGOC=ON `
+            -DENABLE_BSON=ON `
+            -DENABLE_SSL=WINDOWS `
+            -DENABLE_SASL=OFF `
+            -DENABLE_AUTOMATIC_INIT_AND_CLEANUP=OFF `
+            -DCMAKE_INSTALL_PREFIX=../../dist `
+            ..
+          ninja install
+
+      - name: Configure and Build (Unix)
+        if: matrix.config.os != 'windows'
+        shell: bash
+        run: |
+          cd mongo-c-driver
+          mkdir build
+          cd build
+          
+          EXTRA_FLAGS=""
+          if [[ "${{ matrix.config.os }}" == "macos" ]]; then
+            # macOS needs hints for brew openssl
+            OPENSSL_ROOT=$(brew --prefix openssl)
+            EXTRA_FLAGS="-DOPENSSL_ROOT_DIR=$OPENSSL_ROOT"
+          fi
+          
+          cmake -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_STATIC=OFF \
+            -DENABLE_TESTS=OFF \
+            -DENABLE_EXAMPLES=OFF \
+            -DENABLE_MONGOC=ON \
+            -DENABLE_BSON=ON \
+            -DENABLE_SSL=OPENSSL \
+            -DENABLE_SASL=OFF \
+            -DENABLE_AUTOMATIC_INIT_AND_CLEANUP=OFF \
+            -DCMAKE_INSTALL_PREFIX=../../dist \
+            $EXTRA_FLAGS \
+            ..
+          ninja install
+
+      - name: Prepare Package
+        shell: bash
+        run: |
+          mkdir -p package
+          # Copy headers
+          cp -r dist/include package/
+          # Copy libraries
+          mkdir -p package/lib
+          if [[ "${{ matrix.config.os }}" == "windows" ]]; then
+            # Windows: DLLs go to bin usually, but we move them to root or lib for convenience
+            cp dist/bin/*.dll package/
+            cp dist/lib/*.lib package/lib/
+          elif [[ "${{ matrix.config.os }}" == "macos" ]]; then
+            cp dist/lib/*.dylib package/lib/
+          else
+            # Linux / Alpine
+            cp -P dist/lib/*.so* package/lib/
+          fi
+          
+          # List files for verification
+          find package
+
+      - name: Zip Artifacts
+        shell: bash
+        run: |
+          PACKAGE_NAME="mongodb-driver-${{ matrix.config.os }}-${{ matrix.config.arch }}"
+          if [[ "${{ matrix.config.os }}" == "alpine" ]]; then
+            PACKAGE_NAME="mongodb-driver-linuxmusl-${{ matrix.config.arch }}"
+          fi
+          cd package
+          zip -r "../$PACKAGE_NAME.zip" .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mongodb-driver-${{ matrix.config.os }}-${{ matrix.config.arch }}
+          path: "*.zip"

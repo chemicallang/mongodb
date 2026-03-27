@@ -2,6 +2,16 @@
 
 MongoDB C driver bindings to Chemical, This links the driver dynamically
 
+## Usage
+
+In your Chemical Mod
+
+```chmod
+import "github.com/chemicallang/mongodb"
+```
+
+## Example
+
 ```chemical
 using mongodb;
 using std::Result;

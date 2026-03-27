@@ -2,6 +2,8 @@ module mongodb
 
 source "src"
 
+import std
+
 import "chemicallang/mongodb" branch "win-x64" if windows and !arm
 import "chemicallang/mongodb" branch "win-arm64" if windows and arm
 

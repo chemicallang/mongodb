@@ -95,10 +95,9 @@ jobs:
         if: matrix.config.os == 'windows'
         shell: pwsh
         run: |
-          cd mongo-c-driver
-          mkdir build
-          cd build
           cmake -G Ninja `
+            -S mongo-c-driver `
+            -B mongo-c-driver/build `
             -DCMAKE_BUILD_TYPE=Release `
             -DENABLE_STATIC=OFF `
             -DENABLE_TESTS=OFF `
@@ -108,18 +107,14 @@ jobs:
             -DENABLE_SSL=WINDOWS `
             -DENABLE_SASL=OFF `
             -DENABLE_AUTOMATIC_INIT_AND_CLEANUP=OFF `
-            -DCMAKE_INSTALL_PREFIX=../../dist `
-            ..
-          ninja install
+            -DCMAKE_INSTALL_PREFIX=dist `
+            .
+          cmake --build mongo-c-driver/build --target install
 
       - name: Configure and Build (Unix)
         if: matrix.config.os != 'windows'
         shell: bash
         run: |
-          cd mongo-c-driver
-          mkdir build
-          cd build
-          
           EXTRA_FLAGS=""
           if [[ "${{ matrix.config.os }}" == "macos" ]]; then
             # macOS needs hints for brew openssl
@@ -128,6 +123,8 @@ jobs:
           fi
           
           cmake -G Ninja \
+            -S mongo-c-driver \
+            -B mongo-c-driver/build \
             -DCMAKE_BUILD_TYPE=Release \
             -DENABLE_STATIC=OFF \
             -DENABLE_TESTS=OFF \
@@ -137,10 +134,10 @@ jobs:
             -DENABLE_SSL=OPENSSL \
             -DENABLE_SASL=OFF \
             -DENABLE_AUTOMATIC_INIT_AND_CLEANUP=OFF \
-            -DCMAKE_INSTALL_PREFIX=../../dist \
+            -DCMAKE_INSTALL_PREFIX=dist \
             $EXTRA_FLAGS \
-            ..
-          ninja install
+            .
+          cmake --build mongo-c-driver/build --target install
 
       - name: Prepare Package
         shell: bash

@@ -8,9 +8,14 @@ public struct Uri {
         return Uri { handle : h }
     }
 
+    @make
+    func from_ptr(ptr : *char) {
+        return Uri { handle : ffi::mongoc_uri_new(ptr) }
+    }
+
     @constructor
     func new(uri_string : std::string_view) {
-        return Uri.make(ffi::mongoc_uri_new(uri_string.data()))
+        return Uri { handle : ffi::mongoc_uri_new(uri_string.data()) }
     }
 
     func isValid(&self) : bool {

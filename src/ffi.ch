@@ -1,6 +1,6 @@
 public namespace mongodb {
 
-protected struct ffi {
+public struct ffi {
     @extern
     func mongoc_get_version() : *char;
 
@@ -120,6 +120,12 @@ protected struct ffi {
     func mongoc_client_destroy(client : *mut mongoc_client_t) : void;
 
     @extern
+    func mongoc_client_new_from_uri(uri : *mongoc_uri_t) : *mut mongoc_client_t;
+
+    @extern
+    func mongoc_client_new_from_uri_with_error(uri : *mongoc_uri_t, error : *mut bson_error_t) : *mut mongoc_client_t;
+
+    @extern
     func mongoc_client_get_database(client : *mut mongoc_client_t, name : *char) : *mut mongoc_database_t;
 
     @extern
@@ -232,6 +238,9 @@ protected struct ffi {
 
     @extern
     func mongoc_uri_new(uri_string : *char) : *mut mongoc_uri_t;
+
+    @extern
+    func mongoc_uri_new_with_error(uri_string : *char, error : *mut bson_error_t) : *mut mongoc_uri_t;
 
     @extern
     func mongoc_uri_destroy(uri : *mut mongoc_uri_t) : void;

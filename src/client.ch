@@ -10,11 +10,6 @@ public struct Client {
         return Client { handle : h }
     }
 
-    @constructor
-    func new(uri_string : std::string_view) {
-        return Client.make(ffi::mongoc_client_new(uri_string.data()))
-    }
-
     public func get_database(&self, name : std::string_view) : Database {
         return Database.make(ffi::mongoc_client_get_database(self.handle, name.data()))
     }
@@ -54,8 +49,6 @@ public struct Client {
     public func watch(&self, pipeline : &Document, opts : &Document = EmptyOpts) : ChangeStream {
         return ChangeStream.make(ffi::mongoc_client_watch(self.handle, pipeline.handle, opts.handle))
     }
-
-
 
     func isInvalid(&self) : bool {
         return handle == null;

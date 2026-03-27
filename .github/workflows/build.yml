@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'mongo-c-driver version to build (e.g. 1.29.2)'
+        description: 'mongo-c-driver version to build (e.g. 2.2.3)'
         required: true
-        default: '1.29.2'
+        default: '2.2.3'
 
 permissions:
   contents: write
@@ -169,7 +169,11 @@ jobs:
             PACKAGE_NAME="mongodb-driver-linuxmusl-${{ matrix.config.arch }}"
           fi
           cd package
-          zip -r "../$PACKAGE_NAME.zip" .
+          if [[ "${{ matrix.config.os }}" == "windows" ]]; then
+            7z a "../$PACKAGE_NAME.zip" *
+          else
+            zip -r "../$PACKAGE_NAME.zip" .
+          fi
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

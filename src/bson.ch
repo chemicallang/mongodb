@@ -3,7 +3,7 @@ using std::Result;
 public namespace mongodb {
 
 @never_destructed
-public const EmptyOpts = Document { handle : null, is_owned = false }
+public const EmptyOpts = mongodb::Document { handle : null, is_owned = false }
 
 // TODO: only allow initialization in current module using internal_direct_init
 @direct_init

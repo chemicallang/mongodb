@@ -9,7 +9,7 @@ public enum ReadMode {
 }
 
 @never_destructed
-public const EmptyReadPrefs = ReadPrefs { handle : null }
+public const EmptyReadPrefs = mongodb::ReadPrefs { handle : null }
 
 // TODO: use internal direct initialization
 @direct_init

@@ -19,6 +19,33 @@ public struct Collection {
         return Result.Ok<Unit, Error>(Unit{})
     }
 
+    public func insert_one_with_id(&self, doc : &Document, opts : &Document = EmptyOpts) : Result<OID, Error> {
+        var error : bson_error_t;
+
+        // Ensure _id exists or create it
+        var it = doc.iter()
+        var has_id = false
+        var oid = OID()
+        while(it.next()) {
+            if(it.key().equals("_id")) {
+                has_id = true
+                oid = it.oid()
+                break
+            }
+        }
+
+        if(!has_id) {
+            oid = OID()
+            doc.append_oid("_id", oid)
+        }
+
+        const res = ffi::mongoc_collection_insert_one(self.handle, doc.handle, opts.handle, null, &mut error);
+        if(!res) {
+            return Result.Err<OID, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&error.message[0])))
+        }
+        return Result.Ok<OID, Error>(oid)
+    }
+
     public func insert_many(&self, docs : &std::span<Document>, opts : &Document = EmptyOpts) : Result<Unit, Error> {
         var error : bson_error_t;
         var handles = std::vector<*mut bson_t>();

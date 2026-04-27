@@ -122,6 +122,13 @@ public struct OID {
         ffi::bson_oid_to_string(&self.handle, &mut buf[0]);
         return std::string.make_no_len(&buf[0])
     }
+
+    public func is_null(&self) : bool {
+        for(var i=0u; i<12u; i++) {
+            if(self.handle.bytes[i] != 0u8) return false
+        }
+        return true
+    }
 }
 
 public struct Iter {
@@ -173,6 +180,22 @@ public struct Iter {
             o.handle = *ptr;
         }
         return o;
+    }
+
+    public func document(&self) : Document {
+        var len : u32 = 0;
+        var data : *u8 = null;
+        ffi::bson_iter_document(&self.handle, &mut len, &mut data);
+        if(data == null) return Document { handle : null, is_owned : false };
+        return Document.make(ffi::bson_new_from_data(data, len as size_t), true)
+    }
+
+    public func array(&self) : Document {
+        var len : u32 = 0;
+        var data : *u8 = null;
+        ffi::bson_iter_array(&self.handle, &mut len, &mut data);
+        if(data == null) return Document { handle : null, is_owned : false };
+        return Document.make(ffi::bson_new_from_data(data, len as size_t), true)
     }
 }
 

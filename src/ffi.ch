@@ -10,6 +10,9 @@ public struct ffi {
     func bson_new() : *mut bson_t;
 
     @extern
+    func bson_new_from_data(data : *u8, length : size_t) : *mut bson_t;
+
+    @extern
     func bson_init(b : *mut bson_t) : void;
 
     @extern

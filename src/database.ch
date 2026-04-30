@@ -11,10 +11,12 @@ public struct Database {
     }
 
     public func get_collection(&self, name : std::string_view) : Collection {
+        if(self.handle == null) return Collection.make(null)
         return Collection.make(ffi::mongoc_database_get_collection(self.handle, name.data()))
     }
 
     public func drop(&self) : Result<Unit, Error> {
+        if(self.handle == null) return Result.Err<Unit, Error>(Error.Runtime("Invalid database handle"))
         var error : bson_error_t;
         const res = ffi::mongoc_database_drop(self.handle, &mut error);
         if(!res) {
@@ -24,6 +26,7 @@ public struct Database {
     }
 
     public func command_simple(&self, command : &Document, read_prefs : &ReadPrefs = EmptyReadPrefs) : Result<Document, Error> {
+        if(self.handle == null || command.handle == null) return Result.Err<Document, Error>(Error.Runtime("Invalid handle"))
         var reply : bson_t;
         var error : bson_error_t;
         const res = ffi::mongoc_database_command_simple(self.handle, command.handle, read_prefs.handle, &mut reply, &mut error);
@@ -34,9 +37,10 @@ public struct Database {
     }
 
     public func has_collection(&self, name : std::string_view) : Result<bool, Error> {
+        if(self.handle == null) return Result.Err<bool, Error>(Error.Runtime("Invalid database handle"))
         var error : bson_error_t;
         const res = ffi::mongoc_database_has_collection(self.handle, name.data(), &mut error);
-        // has_collection returns false and error.code=0 if not found, or false and error.code!=0 on error
+        // has_collection returns false and error.code=0 if not found, or false and error.code!=0 on error      
         if(!res && error.code != 0) {
             return Result.Err<bool, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&error.message[0])))
         }
@@ -44,6 +48,7 @@ public struct Database {
     }
 
     public func create_collection(&self, name : std::string_view, opts : &Document = EmptyOpts) : Result<Collection, Error> {
+        if(self.handle == null) return Result.Err<Collection, Error>(Error.Runtime("Invalid database handle"))
         var error : bson_error_t;
         const coll_handle = ffi::mongoc_database_create_collection(self.handle, name.data(), opts.handle, &mut error);
         if(coll_handle == null) {
@@ -53,12 +58,13 @@ public struct Database {
     }
 
     public func get_collection_names(&self, opts : &Document = EmptyOpts) : Result<std::vector<std::string>, Error> {
+        if(self.handle == null) return Result.Err<std::vector<std::string>, Error>(Error.Runtime("Invalid database handle"))
         var error : bson_error_t;
-        const strv = ffi::mongoc_database_get_collection_names_with_opts(self.handle, opts.handle, &mut error);
+        const strv = ffi::mongoc_database_get_collection_names_with_opts(self.handle, opts.handle, &mut error); 
         if(strv == null) {
             return Result.Err<std::vector<std::string>, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&error.message[0])))
         }
-        
+
         var vec = std::vector<std::string>();
         var curr = strv;
         while(*curr != null) {
@@ -70,9 +76,17 @@ public struct Database {
     }
 
     public func watch(&self, pipeline : &Document, opts : &Document = EmptyOpts) : ChangeStream {
+        if(self.handle == null || pipeline.handle == null) return ChangeStream.make(null)
         return ChangeStream.make(ffi::mongoc_database_watch(self.handle, pipeline.handle, opts.handle))
     }
 
+    public func is_null(&self) : bool {
+        return self.handle == null
+    }
+
+    public func is_valid(&self) : bool {
+        return self.handle != null
+    }
 
     @delete
     func delete(&mut self) {

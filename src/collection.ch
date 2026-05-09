@@ -2,6 +2,36 @@ using std::Result;
 
 public namespace mongodb {
 
+public struct WriteResult {
+    public var matched_count : i64 = 0;
+    public var modified_count : i64 = 0;
+    public var upserted_count : i64 = 0;
+
+    @constructor
+    func make(matched : i64, modified : i64, upserted : i64) {
+        return WriteResult { matched_count : matched, modified_count : modified, upserted_count : upserted }
+    }
+}
+
+internal func reply_as_write_result(reply : *mut bson_t) : WriteResult {
+    var it : bson_iter_t;
+    ffi::bson_iter_init(&mut it, reply);
+    var matched = 0i64;
+    var modified = 0i64;
+    var upserted = 0i64;
+    while(ffi::bson_iter_next(&mut it)) {
+        const key = std::string_view(ffi::bson_iter_key(&it));
+        if(key.equals("matchedCount") || key.equals("n")) {
+            matched = ffi::bson_iter_int32(&it) as i64;
+        } else if(key.equals("modifiedCount") || key.equals("nModified")) {
+            modified = ffi::bson_iter_int32(&it) as i64;
+        } else if(key.equals("upsertedCount")) {
+            upserted = ffi::bson_iter_int32(&it) as i64;
+        }
+    }
+    return WriteResult.make(matched, modified, upserted);
+}
+
 public struct Collection {
     internal var handle : *mut mongoc_collection_t = null;
 
@@ -87,6 +117,19 @@ public struct Collection {
             return Result.Err<Unit, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&error.message[0])))
         }
         return Result.Ok<Unit, Error>(Unit{})
+    }
+
+    public func update_one_with_result(&self, selector : &Document, update : &Document, opts : &Document = EmptyOpts) : Result<WriteResult, Error> {
+        var error : bson_error_t;
+        var reply : bson_t;
+        const res = ffi::mongoc_collection_update_one(self.handle, selector.handle, update.handle, opts.handle, &mut reply, &mut error);
+        if(!res) {
+            ffi::bson_destroy(&mut reply);
+            return Result.Err<WriteResult, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&error.message[0])))
+        }
+        const wr = reply_as_write_result(&mut reply);
+        ffi::bson_destroy(&mut reply);
+        return Result.Ok<WriteResult, Error>(wr)
     }
 
     public func delete_one(&self, selector : &Document, opts : &Document = EmptyOpts) : Result<Unit, Error> {   

@@ -308,7 +308,11 @@ public struct ffi {
 }
 
 // Opaque types
-public struct bson_t {}
+public struct bson_t {
+    var flags : u32;
+    var len : u32;
+    var padding : [112]u8;
+}
 public struct bson_oid_t {
     var bytes : [12]u8;
 }

@@ -63,7 +63,7 @@ public struct Document {
 
     public func append_oid(&self, key : std::string_view, oid : &OID) : bool {
         if(self.handle == null) return false;
-        return ffi::bson_append_oid(self.handle, key.data(), key.size() as int, &oid.handle)
+        return ffi::bson_append_oid(self.handle, key.data(), key.size() as int, &raw oid.handle)
     }
 
     public func append_document(&self, key : std::string_view, doc : &Document) : bool {
@@ -79,7 +79,7 @@ public struct Document {
     public func as_json(&self) : std::string {
         if(self.handle == null) return std::string();
         var len : size_t = 0;
-        const ptr = ffi::bson_as_relaxed_extended_json(self.handle, &mut len);
+        const ptr = ffi::bson_as_relaxed_extended_json(self.handle, &raw mut len);
         if(ptr == null) return std::string();
         var s = std::string.constructor(ptr, len);
         ffi::bson_free(ptr as *mut void);
@@ -89,7 +89,7 @@ public struct Document {
     public func as_canonical_json(&self) : std::string {
         if(self.handle == null) return std::string();
         var len : size_t = 0;
-        const ptr = ffi::bson_as_canonical_extended_json(self.handle, &mut len);
+        const ptr = ffi::bson_as_canonical_extended_json(self.handle, &raw mut len);
         if(ptr == null) return std::string();
         var s = std::string.constructor(ptr, len);
         ffi::bson_free(ptr as *mut void);
@@ -108,7 +108,7 @@ public struct Document {
         var it : bson_iter_t;
         var valid = false;
         if(self.handle != null) {
-            valid = ffi::bson_iter_init(&mut it, self.handle);
+            valid = ffi::bson_iter_init(&raw mut it, self.handle);
         }
         return Iter.make(it, valid)
     }
@@ -128,21 +128,21 @@ public struct OID {
     @constructor
     func new() {
         var o : OID;
-        ffi::bson_oid_init(&mut o.handle, null);
+        ffi::bson_oid_init(&raw mut o.handle, null);
         return o;
     }
 
     @constructor
     func from_string(s : std::string_view) {
         var o : OID;
-        ffi::bson_oid_init_from_string(&mut o.handle, s.data());
+        ffi::bson_oid_init_from_string(&raw mut o.handle, s.data());
         return o;
     }
 
     public func to_string(&self) : std::string {
         var buf : [25]char;
-        ffi::bson_oid_to_string(&self.handle, &mut buf[0]);
-        return std::string.make_no_len(&buf[0])
+        ffi::bson_oid_to_string(&raw self.handle, &raw mut buf[0]);
+        return std::string.make_no_len(&raw buf[0])
     }
 
     public func is_null(&self) : bool {
@@ -164,50 +164,50 @@ public struct Iter {
 
     public func next(&mut self) : bool {
         if(!self.valid) return false;
-        return ffi::bson_iter_next(&mut self.handle)
+        return ffi::bson_iter_next(&raw mut self.handle)
     }
 
     public func key(&self) : std::string_view {
         if(!self.valid) return std::string_view("");
-        return std::string_view(ffi::bson_iter_key(&self.handle))
+        return std::string_view(ffi::bson_iter_key(&raw self.handle))
     }
 
     public func type(&self) : u32 {
         if(!self.valid) return 0;
-        return ffi::bson_iter_type(&self.handle) as u32
+        return ffi::bson_iter_type(&raw self.handle) as u32
     }
 
     public func int32(&self) : i32 {
         if(!self.valid) return 0;
-        return ffi::bson_iter_int32(&self.handle)
+        return ffi::bson_iter_int32(&raw self.handle)
     }
 
     public func int64(&self) : i64 {
         if(!self.valid) return 0;
-        return ffi::bson_iter_int64(&self.handle)
+        return ffi::bson_iter_int64(&raw self.handle)
     }
 
     public func double(&self) : double {
         if(!self.valid) return 0.0;
-        return ffi::bson_iter_double(&self.handle)
+        return ffi::bson_iter_double(&raw self.handle)
     }
 
     public func bool(&self) : bool {
         if(!self.valid) return false;
-        return ffi::bson_iter_bool(&self.handle)
+        return ffi::bson_iter_bool(&raw self.handle)
     }
 
     public func utf8(&self) : std::string_view {
         if(!self.valid) return std::string_view("");
         var len : u32 = 0;
-        const ptr = ffi::bson_iter_utf8(&self.handle, &mut len);
+        const ptr = ffi::bson_iter_utf8(&raw self.handle, &raw mut len);
         return std::string_view(ptr, len as size_t)
     }
 
     public func oid(&self) : OID {
         var o : OID;
         if(!self.valid) return o;
-        const ptr = ffi::bson_iter_oid(&self.handle);
+        const ptr = ffi::bson_iter_oid(&raw self.handle);
         if(ptr != null) {
             o.handle = *ptr;
         }
@@ -218,7 +218,7 @@ public struct Iter {
         if(!self.valid) return Document { handle : null, is_owned : false };
         var len : u32 = 0;
         var data : *u8 = null;
-        ffi::bson_iter_document(&self.handle, &mut len, &mut data);
+        ffi::bson_iter_document(&raw self.handle, &raw mut len, &raw mut data);
         if(data == null) return Document { handle : null, is_owned : false };
         return Document.make(ffi::bson_new_from_data(data, len as size_t), true)
     }
@@ -227,7 +227,7 @@ public struct Iter {
         if(!self.valid) return Document { handle : null, is_owned : false };
         var len : u32 = 0;
         var data : *u8 = null;
-        ffi::bson_iter_array(&self.handle, &mut len, &mut data);
+        ffi::bson_iter_array(&raw self.handle, &raw mut len, &raw mut data);
         if(data == null) return Document { handle : null, is_owned : false };
         return Document.make(ffi::bson_new_from_data(data, len as size_t), true)
     }

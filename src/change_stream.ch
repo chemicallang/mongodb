@@ -13,13 +13,13 @@ public struct ChangeStream {
 
     public func next(&self) : Result<std::Option<Document>, Error> {
         var doc_ptr : *bson_t = null;
-        const res = ffi::mongoc_change_stream_next(self.handle, &mut doc_ptr);
+        const res = ffi::mongoc_change_stream_next(self.handle, &raw mut doc_ptr);
         
         if(!res) {
             var error : bson_error_t;
             var err_doc : *bson_t = null;
-            if(ffi::mongoc_change_stream_error_document(self.handle, &mut error, &mut err_doc)) {
-                return Result.Err<std::Option<Document>, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&error.message[0])))
+            if(ffi::mongoc_change_stream_error_document(self.handle, &raw mut error, &raw mut err_doc)) {
+                return Result.Err<std::Option<Document>, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&raw error.message[0])))
             }
             return Result.Ok<std::Option<Document>, Error>(std::Option.None<Document>())
         }

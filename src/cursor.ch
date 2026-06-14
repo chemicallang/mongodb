@@ -13,11 +13,11 @@ public struct Cursor {
 
     public func next(&mut self) : Result<Option<Document>, Error> {
         var doc_ptr : *bson_t = null;
-        const res = ffi::mongoc_cursor_next(self.handle, &mut doc_ptr);
+        const res = ffi::mongoc_cursor_next(self.handle, &raw mut doc_ptr);
         if(!res) {
             var error : bson_error_t;
-            if(ffi::mongoc_cursor_error(self.handle, &mut error)) {
-                return Result.Err<Option<Document>, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&error.message[0])))
+            if(ffi::mongoc_cursor_error(self.handle, &raw mut error)) {
+                return Result.Err<Option<Document>, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&raw error.message[0])))
             }
             return Result.Ok<Option<Document>, Error>(Option.None<Document>())
         }

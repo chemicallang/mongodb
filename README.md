@@ -2,6 +2,17 @@
 
 MongoDB C driver bindings to Chemical, This links the driver dynamically
 
+## Running Tests
+
+Build and run the test suite:
+
+```bash
+cmake-build-debug/TCCCompiler lang/compiled/mongodb/chemical.mod -o build/test.exe --test --no-cache
+./build/test.exe
+```
+
+Note: `--no-cache` is currently required to ensure new/changed tests are picked up — work is being done to fix cache invalidation so `--no-cache` can eventually be omitted.
+
 ## Usage
 
 In your Chemical Mod

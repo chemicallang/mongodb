@@ -15,10 +15,12 @@ public struct Database {
         return Collection.make(ffi::mongoc_database_get_collection(self.handle, name.data()))
     }
 
-    public func drop(&self) : Result<Unit, Error> {
+    public func drop(&mut self) : Result<Unit, Error> {
         if(self.handle == null) return Result.Err<Unit, Error>(Error.Runtime("Invalid database handle"))
         var error : bson_error_t;
         const res = ffi::mongoc_database_drop(self.handle, &raw mut error);
+        ffi::mongoc_database_destroy(self.handle);
+        self.handle = null;
         if(!res) {
             return Result.Err<Unit, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&raw error.message[0])))
         }
@@ -73,6 +75,12 @@ public struct Database {
         }
         ffi::bson_strfreev(strv);
         return Result.Ok<std::vector<std::string>, Error>(vec);
+    }
+
+    public func drop_collection(&self, name : std::string_view) : Result<Unit, Error> {
+        if(self.handle == null) return Result.Err<Unit, Error>(Error.Runtime("Invalid database handle"))
+        var coll = self.get_collection(name);
+        return coll.drop()
     }
 
     public func watch(&self, pipeline : &Document, opts : &Document = &EmptyOpts) : ChangeStream {

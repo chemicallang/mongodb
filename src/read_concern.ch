@@ -13,6 +13,10 @@ public struct ReadConcern {
         return ReadConcern.make(ffi::mongoc_read_concern_new())
     }
 
+    func is_null(&self) : bool {
+        return handle == null
+    }
+
     public func set_level(&self, level : std::string_view) : bool {
         return ffi::mongoc_read_concern_set_level(self.handle, level.data())
     }

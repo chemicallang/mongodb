@@ -26,6 +26,10 @@ public struct ReadPrefs {
         return ReadPrefs.make(ffi::mongoc_read_prefs_new(mode as int))
     }
 
+    func is_null(&self) : bool {
+        return handle == null
+    }
+
     @delete
     func delete(&mut self) {
         if(self.handle != null) {

@@ -1,6 +1,25 @@
 using std::Result;
+using std::Option;
 
 public namespace mongodb {
+
+public func document_from_json(json_str : std::string_view) : Result<Document, Error> {
+    var error : bson_error_t;
+    const handle = ffi::bson_new_from_json(json_str.data() as *u8, json_str.size() as isize, &raw mut error);
+    if(handle == null) {
+        return Result.Err<Document, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&raw error.message[0])))
+    }
+    return Result.Ok<Document, Error>(Document.make(handle, true))
+}
+
+public func document_from_json_len(data : *u8, len : isize) : Result<Document, Error> {
+    var error : bson_error_t;
+    const handle = ffi::bson_new_from_json(data, len, &raw mut error);
+    if(handle == null) {
+        return Result.Err<Document, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&raw error.message[0])))
+    }
+    return Result.Ok<Document, Error>(Document.make(handle, true))
+}
 
 @never_destructed
 public const EmptyOpts = mongodb::Document { handle : null, is_owned = false }
@@ -113,6 +132,30 @@ public struct Document {
         return Iter.make(it, valid)
     }
 
+    public func copy(&self) : Document {
+        if(self.handle == null) return Document { handle : null, is_owned : false }
+        return Document.make(ffi::bson_copy(self.handle), true)
+    }
+
+    public func has_field(&self, key : std::string_view) : bool {
+        if(self.handle == null) return false;
+        var it : bson_iter_t;
+        return ffi::bson_iter_init_find(&raw mut it, self.handle, key.data())
+    }
+
+    public func get_type(&self, key : std::string_view) : u32 {
+        if(self.handle == null) return 0;
+        var it : bson_iter_t;
+        if(ffi::bson_iter_init_find(&raw mut it, self.handle, key.data())) {
+            return ffi::bson_iter_type(&raw it) as u32
+        }
+        return 0
+    }
+
+    public func to_string(&self) : std::string {
+        return self.as_json()
+    }
+
     @delete
     func delete(&mut self) {
         if(self.is_owned && self.handle != null) {
@@ -145,11 +188,22 @@ public struct OID {
         return std::string.make_no_len(&raw buf[0])
     }
 
+    public func is_equal(&self, other : &OID) : bool {
+        for(var i=0u; i<12u; i++) {
+            if(self.handle.bytes[i] != other.handle.bytes[i]) return false
+        }
+        return true
+    }
+
     public func is_null(&self) : bool {
         for(var i=0u; i<12u; i++) {
             if(self.handle.bytes[i] != 0u8) return false
         }
         return true
+    }
+
+    public func to_view(&self) : std::string_view {
+        return std::string_view(&raw self.handle.bytes[0] as *char, 12)
     }
 }
 

@@ -108,6 +108,15 @@ public struct ffi {
     @extern
     func bson_strfreev(strv : **char) : void;
 
+    @extern
+    func bson_new_from_json(data : *u8, len : isize, error : *mut bson_error_t) : *mut bson_t;
+
+    @extern
+    func bson_copy(src : *bson_t) : *mut bson_t;
+
+    @extern
+    func bson_iter_init_find(iter : *mut bson_iter_t, b : *bson_t, key : *char) : bool;
+
     // --- Mongoc ---
 
     @extern
@@ -304,6 +313,32 @@ public struct ffi {
 
     @extern
     func mongoc_change_stream_destroy(stream : *mut mongoc_change_stream_t) : void;
+
+    // --- find_and_modify ---
+
+    @extern
+    func mongoc_find_and_modify_opts_new() : *mut mongoc_find_and_modify_opts_t;
+
+    @extern
+    func mongoc_find_and_modify_opts_destroy(opts : *mut mongoc_find_and_modify_opts_t) : void;
+
+    @extern
+    func mongoc_find_and_modify_opts_set_sort(opts : *mut mongoc_find_and_modify_opts_t, sort : *bson_t) : bool;
+
+    @extern
+    func mongoc_find_and_modify_opts_set_update(opts : *mut mongoc_find_and_modify_opts_t, update : *bson_t) : bool;
+
+    @extern
+    func mongoc_find_and_modify_opts_set_fields(opts : *mut mongoc_find_and_modify_opts_t, fields : *bson_t) : bool;
+
+    @extern
+    func mongoc_find_and_modify_opts_set_flags(opts : *mut mongoc_find_and_modify_opts_t, flags : u32) : bool;
+
+    @extern
+    func mongoc_find_and_modify_opts_set_bypass_document_validation(opts : *mut mongoc_find_and_modify_opts_t, bypass : bool) : bool;
+
+    @extern
+    func mongoc_find_and_modify_opts_append(opts : *mut mongoc_find_and_modify_opts_t, doc : *bson_t) : bool;
 
 }
 

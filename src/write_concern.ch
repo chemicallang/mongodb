@@ -13,6 +13,10 @@ public struct WriteConcern {
         return WriteConcern.make(ffi::mongoc_write_concern_new())
     }
 
+    func is_null(&self) : bool {
+        return handle == null
+    }
+
     public func set_w(&self, w : i32) {
         ffi::mongoc_write_concern_set_w(self.handle, w)
     }

@@ -1,6 +1,66 @@
 using std::Result;
+using std::Option;
 
 public namespace mongodb {
+
+public enum FindAndModifyFlags : u32 {
+    None = 0,
+    Remove = 1,
+    ReturnNew = 2,
+    Upsert = 4,
+}
+
+public enum FindAndModifyReturn {
+    Before,
+    After
+}
+
+public struct FindAndModifyOpts {
+    internal var handle : *mut mongoc_find_and_modify_opts_t = null;
+
+    @constructor
+    func new() {
+        return FindAndModifyOpts { handle : ffi::mongoc_find_and_modify_opts_new() }
+    }
+
+    @delete
+    func delete(&mut self) {
+        if(self.handle != null) {
+            ffi::mongoc_find_and_modify_opts_destroy(self.handle);
+            self.handle = null;
+        }
+    }
+
+    public func set_sort(&self, sort : &Document) : bool {
+        if(self.handle == null || sort.handle == null) return false;
+        return ffi::mongoc_find_and_modify_opts_set_sort(self.handle, sort.handle)
+    }
+
+    public func set_update(&self, update : &Document) : bool {
+        if(self.handle == null || update.handle == null) return false;
+        return ffi::mongoc_find_and_modify_opts_set_update(self.handle, update.handle)
+    }
+
+    public func set_fields(&self, fields : &Document) : bool {
+        if(self.handle == null || fields.handle == null) return false;
+        return ffi::mongoc_find_and_modify_opts_set_fields(self.handle, fields.handle)
+    }
+
+    public func set_flags(&self, flags : FindAndModifyFlags) : bool {
+        if(self.handle == null) return false;
+        return ffi::mongoc_find_and_modify_opts_set_flags(self.handle, flags as u32)
+    }
+
+    public func set_bypass_document_validation(&self, bypass : bool) : bool {
+        if(self.handle == null) return false;
+        return ffi::mongoc_find_and_modify_opts_set_bypass_document_validation(self.handle, bypass)
+    }
+
+    public func append(&self, doc : &Document) : bool {
+        if(self.handle == null || doc.handle == null) return false;
+        return ffi::mongoc_find_and_modify_opts_append(self.handle, doc.handle)
+    }
+}
 
 public struct WriteResult {
     public var matched_count : i64 = 0;
@@ -11,6 +71,18 @@ public struct WriteResult {
     func make(matched : i64, modified : i64, upserted : i64) {
         return WriteResult { matched_count : matched, modified_count : modified, upserted_count : upserted }
     }
+}
+
+internal func extract_fam_value(reply : *mut bson_t) : Option<Document> {
+    var it : bson_iter_t;
+    if(!ffi::bson_iter_init_find(&raw mut it, reply, "value")) {
+        return Option.None<Document>()
+    }
+    var len : u32 = 0;
+    var data : *u8 = null;
+    ffi::bson_iter_document(&raw mut it, &raw mut len, &raw mut data);
+    if(data == null) return Option.None<Document>();
+    return Option.Some<Document>(Document.make(ffi::bson_new_from_data(data, len as size_t), true))
 }
 
 internal func reply_as_write_result(reply : *mut bson_t) : WriteResult {
@@ -223,10 +295,12 @@ public struct Collection {
         return Result.Ok<i64, Error>(count)
     }
 
-    public func drop(&self) : Result<Unit, Error> {
+    public func drop(&mut self) : Result<Unit, Error> {
         if(self.handle == null) return Result.Err<Unit, Error>(Error.Runtime("Invalid collection handle"))
         var error : bson_error_t;
         const res = ffi::mongoc_collection_drop(self.handle, &raw mut error);
+        ffi::mongoc_collection_destroy(self.handle);
+        self.handle = null;
         if(!res) {
             return Result.Err<Unit, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&raw error.message[0])))
         }
@@ -236,6 +310,61 @@ public struct Collection {
     public func aggregate(&self, pipeline : &Document, opts : &Document = &EmptyOpts, read_prefs : &ReadPrefs = &EmptyReadPrefs) : Cursor {
         if(self.handle == null || pipeline.handle == null) return Cursor.make(null)
         return Cursor.make(ffi::mongoc_collection_aggregate(self.handle, 0, pipeline.handle, opts.handle, read_prefs.handle))
+    }
+
+    public func find_one_and_update(&self, filter : &Document, update : &Document, return_doc : FindAndModifyReturn = FindAndModifyReturn.After, sort : &Document = &EmptyOpts) : Result<Option<Document>, Error> {
+        if(self.handle == null || filter.handle == null || update.handle == null) return Result.Err<Option<Document>, Error>(Error.Runtime("Invalid handle"))
+        var opts = FindAndModifyOpts.new();
+        opts.set_update(update);
+        if(sort.is_valid()) { opts.set_sort(sort); }
+        opts.set_flags(if(return_doc == FindAndModifyReturn.After) FindAndModifyFlags.ReturnNew else FindAndModifyFlags.None);
+        var reply : bson_t;
+        var error : bson_error_t;
+        const res = ffi::mongoc_collection_find_and_modify_with_opts(self.handle, filter.handle, opts.handle, &raw mut reply, &raw mut error);
+        if(!res) {
+            return Result.Err<Option<Document>, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&raw error.message[0])))
+        }
+        var result = extract_fam_value(&raw mut reply);
+        ffi::bson_destroy(&raw mut reply);
+        return Result.Ok<Option<Document>, Error>(result)
+    }
+
+    public func find_one_and_delete(&self, filter : &Document, sort : &Document = &EmptyOpts) : Result<Option<Document>, Error> {
+        if(self.handle == null || filter.handle == null) return Result.Err<Option<Document>, Error>(Error.Runtime("Invalid handle"))
+        var opts = FindAndModifyOpts.new();
+        opts.set_flags(FindAndModifyFlags.Remove);
+        if(sort.is_valid()) { opts.set_sort(sort); }
+        var reply : bson_t;
+        var error : bson_error_t;
+        const res = ffi::mongoc_collection_find_and_modify_with_opts(self.handle, filter.handle, opts.handle, &raw mut reply, &raw mut error);
+        if(!res) {
+            return Result.Err<Option<Document>, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&raw error.message[0])))
+        }
+        var result = extract_fam_value(&raw mut reply);
+        ffi::bson_destroy(&raw mut reply);
+        return Result.Ok<Option<Document>, Error>(result)
+    }
+
+    public func find_one_and_replace(&self, filter : &Document, replacement : &Document, return_doc : FindAndModifyReturn = FindAndModifyReturn.After, sort : &Document = &EmptyOpts) : Result<Option<Document>, Error> {
+        if(self.handle == null || filter.handle == null || replacement.handle == null) return Result.Err<Option<Document>, Error>(Error.Runtime("Invalid handle"))
+        var opts = FindAndModifyOpts.new();
+        opts.set_update(replacement);
+        if(sort.is_valid()) { opts.set_sort(sort); }
+        opts.set_flags(if(return_doc == FindAndModifyReturn.After) FindAndModifyFlags.ReturnNew else FindAndModifyFlags.None);
+        var reply : bson_t;
+        var error : bson_error_t;
+        const res = ffi::mongoc_collection_find_and_modify_with_opts(self.handle, filter.handle, opts.handle, &raw mut reply, &raw mut error);
+        if(!res) {
+            return Result.Err<Option<Document>, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&raw error.message[0])))
+        }
+        var result = extract_fam_value(&raw mut reply);
+        ffi::bson_destroy(&raw mut reply);
+        return Result.Ok<Option<Document>, Error>(result)
+    }
+
+    public func find_indexes(&self, opts : &Document = &EmptyOpts) : Cursor {
+        if(self.handle == null) return Cursor.make(null)
+        return Cursor.make(ffi::mongoc_collection_find_indexes_with_opts(self.handle, opts.handle))
     }
 
     public func is_null(&self) : bool {

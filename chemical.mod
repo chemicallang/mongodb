@@ -1,6 +1,7 @@
 module mongodb
 
 source "src"
+source "test" if test
 
 import std
 
@@ -15,3 +16,6 @@ import "chemicallang/mongodb" orphan branch "linuxmusl-arm64" if linux and musl 
 
 import "chemicallang/mongodb" orphan branch "macos-x64" if macos and !arm
 import "chemicallang/mongodb" orphan branch "macos-arm64" if macos and arm
+
+import test if test
+import test_env if test

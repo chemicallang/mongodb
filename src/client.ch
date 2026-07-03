@@ -28,7 +28,7 @@ public struct Client {
         if(!res) {
             return Result.Err<Document, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&raw error.message[0])))
         }
-        return Result.Ok<Document, Error>(Document.make(&raw mut reply, true))
+        return Result.Ok<Document, Error>(Document.make(ffi::bson_copy(&raw mut reply), true))
     }
 
     public func get_database_names(&self, opts : &Document = &EmptyOpts) : Result<std::vector<std::string>, Error> {

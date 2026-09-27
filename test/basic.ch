@@ -1,4 +1,4 @@
-﻿using mongodb;
+using mongodb;
 using std::Option;
 using std::Result;
 

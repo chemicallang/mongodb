@@ -1,5 +1,14 @@
 public namespace mongodb {
 
+// BSON type tags, from bson.h. Needed to pick the right `bson_iter_*` value
+// accessor: the libbson accessors assert on the iterator's declared type, so
+// reading an int64 field with `bson_iter_int32` is a type mismatch (and yields
+// 0). The server sends write-reply counts as int64.
+public const BSON_TYPE_DOUBLE : int = 0x01;
+public const BSON_TYPE_UTF8 : int = 0x02;
+public const BSON_TYPE_INT32 : int = 0x10;
+public const BSON_TYPE_INT64 : int = 0x12;
+
 public struct ffi {
     @extern
     func mongoc_get_version() : *char;

@@ -831,6 +831,175 @@ func test_delete_many(env : &mut TestEnv) {
     }
 }
 
+// A write whose selector matches nothing returns Ok from the plain variants -
+// libmongoc reports "the command did not error", not "a document changed".
+// This is what let a caller tell a user a delete succeeded when it had matched
+// zero rows, so the counts are pinned here.
+@test
+func test_delete_one_with_result_reports_zero_when_nothing_matched(env : &mut TestEnv) {
+    var driver = mongodb::Driver();
+    var res = driver.create_client("mongodb://localhost:27017");
+    if(res is Result.Err) {
+        env.info("Integration test skipped: MongoDB not available");
+        return;
+    }
+    var Ok(client) = res else unreachable;
+    var db = client.get_database("chemical_test");
+    var coll = db.get_collection("test_write_result");
+    coll.delete_many(mongodb::Document());
+
+    var d = mongodb::Document();
+    d.append_utf8("k", "present");
+    coll.insert_one(&d);
+
+    // Selector that cannot match anything.
+    var missing = mongodb::Document();
+    missing.append_utf8("k", "absent");
+
+    var del_res = coll.delete_one_with_result(&missing);
+    if(del_res is Result.Err) { env.error("delete_one_with_result failed"); return; }
+    var Ok(wr) = del_res else unreachable;
+    if(wr.matched_count != 0i64) { env.error("matched_count should be 0 for a non-matching delete, got ${wr.matched_count}"); return; }
+    if(wr.touched_any()) { env.error("touched_any should be false when nothing matched"); return; }
+
+    // The row that DOES match reports 1 - this is the case the plain
+    // delete_one cannot distinguish from the one above.
+    var present = mongodb::Document();
+    present.append_utf8("k", "present");
+    var del_ok = coll.delete_one_with_result(&present);
+    if(del_ok is Result.Err) { env.error("delete_one_with_result failed on a real match"); return; }
+    var Ok(wr2) = del_ok else unreachable;
+    if(wr2.matched_count != 1i64) { env.error("matched_count should be 1 for a matching delete, got ${wr2.matched_count}"); return; }
+    if(!wr2.touched_any()) { env.error("touched_any should be true when a document was deleted"); return; }
+
+    env.success("delete_one_with_result distinguishes matched from unmatched")
+}
+
+@test
+func test_update_one_with_result_counts(env : &mut TestEnv) {
+    var driver = mongodb::Driver();
+    var res = driver.create_client("mongodb://localhost:27017");
+    if(res is Result.Err) {
+        env.info("Integration test skipped: MongoDB not available");
+        return;
+    }
+    var Ok(client) = res else unreachable;
+    var db = client.get_database("chemical_test");
+    var coll = db.get_collection("test_write_result_update");
+    coll.delete_many(mongodb::Document());
+
+    var d = mongodb::Document();
+    d.append_utf8("k", "a");
+    d.append_int32("v", 1);
+    coll.insert_one(&d);
+
+    var filter = mongodb::Document();
+    filter.append_utf8("k", "a");
+    var set = mongodb::Document();
+    set.append_int32("v", 2);
+    var update = mongodb::Document();
+    update.append_document("$", &set);
+
+    var upd = coll.update_one_with_result(&filter, &update);
+    if(upd is Result.Err) { env.error("update_one_with_result failed"); return; }
+    var Ok(wr) = upd else unreachable;
+    // These are int64 in the server reply; reading them as int32 yields 0, which
+    // is the bug this pins.
+    if(wr.matched_count != 1i64) { env.error("matched_count should be 1, got ${wr.matched_count}"); return; }
+    if(wr.modified_count != 1i64) { env.error("modified_count should be 1, got ${wr.modified_count}"); return; }
+
+    // No match -> 0/0, still Ok.
+    var none = mongodb::Document();
+    none.append_utf8("k", "zzz");
+    var upd2 = coll.update_one_with_result(&none, &update);
+    if(upd2 is Result.Err) { env.error("update_one_with_result failed on a non-match"); return; }
+    var Ok(wr2) = upd2 else unreachable;
+    if(wr2.matched_count != 0i64) { env.error("matched_count should be 0, got ${wr2.matched_count}"); return; }
+
+    // An upsert with no pre-existing match still counts as touched.
+    var fresh = mongodb::Document();
+    fresh.append_utf8("k", "new");
+    var opts = mongodb::Document();
+    opts.append_bool("upsert", true);
+    var upd3 = coll.update_one_with_result(&fresh, &update, &opts);
+    if(upd3 is Result.Err) { env.error("upsert failed"); return; }
+    var Ok(wr3) = upd3 else unreachable;
+    if(wr3.upserted_count != 1i64) { env.error("upserted_count should be 1, got ${wr3.upserted_count}"); return; }
+    if(!wr3.touched_any()) { env.error("an upsert is a write even with no pre-existing match"); return; }
+
+    coll.delete_many(mongodb::Document());
+    env.success("update_one_with_result reports matched/modified/upserted")
+}
+
+@test
+func test_update_many_with_result_counts(env : &mut TestEnv) {
+    var driver = mongodb::Driver();
+    var res = driver.create_client("mongodb://localhost:27017");
+    if(res is Result.Err) {
+        env.info("Integration test skipped: MongoDB not available");
+        return;
+    }
+    var Ok(client) = res else unreachable;
+    var db = client.get_database("chemical_test");
+    var coll = db.get_collection("test_write_result_many");
+    coll.delete_many(mongodb::Document());
+
+    for(var i = 0; i < 3; i = i + 1) {
+        var d = mongodb::Document();
+        d.append_utf8("g", "a");
+        d.append_int32("v", i as i32);
+        coll.insert_one(&d);
+    }
+
+    var filter = mongodb::Document();
+    filter.append_utf8("g", "a");
+    var set = mongodb::Document();
+    set.append_utf8("g", "b");
+    var update = mongodb::Document();
+    update.append_document("$", &set);
+
+    var upd = coll.update_many_with_result(&filter, &update);
+    if(upd is Result.Err) { env.error("update_many_with_result failed"); return; }
+    var Ok(wr) = upd else unreachable;
+    if(wr.matched_count != 3i64) { env.error("matched_count should be 3, got ${wr.matched_count}"); return; }
+    if(wr.modified_count != 3i64) { env.error("modified_count should be 3, got ${wr.modified_count}"); return; }
+
+    coll.delete_many(mongodb::Document());
+    env.success("update_many_with_result counts every matched document")
+}
+
+@test
+func test_replace_one_with_result_counts(env : &mut TestEnv) {
+    var driver = mongodb::Driver();
+    var res = driver.create_client("mongodb://localhost:27017");
+    if(res is Result.Err) {
+        env.info("Integration test skipped: MongoDB not available");
+        return;
+    }
+    var Ok(client) = res else unreachable;
+    var db = client.get_database("chemical_test");
+    var coll = db.get_collection("test_write_result_replace");
+    coll.delete_many(mongodb::Document());
+
+    var d = mongodb::Document();
+    d.append_utf8("k", "a");
+    coll.insert_one(&d);
+
+    var filter = mongodb::Document();
+    filter.append_utf8("k", "a");
+    var replacement = mongodb::Document();
+    replacement.append_utf8("k", "a");
+    replacement.append_utf8("v", "replaced");
+
+    var rep = coll.replace_one_with_result(&filter, &replacement);
+    if(rep is Result.Err) { env.error("replace_one_with_result failed"); return; }
+    var Ok(wr) = rep else unreachable;
+    if(wr.matched_count != 1i64) { env.error("matched_count should be 1, got ${wr.matched_count}"); return; }
+
+    coll.delete_many(mongodb::Document());
+    env.success("replace_one_with_result reports whether a document was replaced")
+}
+
 @test
 func test_update_many(env : &mut TestEnv) {
     var driver = mongodb::Driver();

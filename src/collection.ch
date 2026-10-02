@@ -62,6 +62,25 @@ public struct FindAndModifyOpts {
     }
 }
 
+// The server's reply to a write command. Which counts are populated depends on
+// the command AND on the server version — this is the part that is easy to get
+// wrong, because the keys are not stable across versions:
+//
+//   update / replace : matchedCount (or legacy n), modifiedCount (nModified),
+//                      upsertedCount
+//   delete           : deletedCount (or legacy n) = the documents removed
+//   insert           : insertedCount / insertedId (the id is also on the
+//                      document, which is what `insert_one_with_id` uses)
+//
+// Modern servers (the default `hello` protocol, OP_MSG) use the descriptive
+// names; older ones used `n` / `nModified`. Both are read below, because
+// reading only the legacy keys made every count silently 0 against a current
+// server — a delete reported "deleted nothing" while it had in fact deleted the
+// row.
+//
+// `matched_count` is the one to check when a caller needs to know whether a
+// write actually hit a document: a selector that matches nothing still returns
+// Ok, with matched_count 0. See the `_with_result` variants below.
 public struct WriteResult {
     public var matched_count : i64 = 0;
     public var modified_count : i64 = 0;
@@ -71,6 +90,37 @@ public struct WriteResult {
     func make(matched : i64, modified : i64, upserted : i64) {
         return WriteResult { matched_count : matched, modified_count : modified, upserted_count : upserted }
     }
+
+    // Did the write touch at least one document? (matched OR upserted — an
+    // upsert with no pre-existing match is still a successful write.)
+    public func touched_any(&self) : bool {
+        return self.matched_count > 0i64 || self.upserted_count > 0i64;
+    }
+}
+
+// A count as it arrives in a write reply. The server sends these as BSON int64
+// (older replies used int32), so the iterator's declared type decides which
+// accessor is legal — reading an int64 with bson_iter_int32 is a type mismatch
+// and yields 0, which is how this used to report every write as matching
+// nothing.
+internal func reply_count(iter : *bson_iter_t) : i64 {
+    if(ffi::bson_iter_type(iter) == BSON_TYPE_INT64) {
+        return ffi::bson_iter_int64(iter)
+    }
+    if(ffi::bson_iter_type(iter) == BSON_TYPE_INT32) {
+        return ffi::bson_iter_int32(iter) as i64
+    }
+    return 0i64
+}
+
+// The reply `bson_t` MUST be initialised before a write command that reports
+// one: libmongoc documents the reply slot as "must be initialised with
+// bson_init()", and a stack `bson_t` left as raw stack bytes is not a valid
+// document — mongoc can decline to write into it, which shows up as every count
+// reading 0 rather than as an error. Every `_with_result` below therefore does
+// `bson_init` before the call and `bson_destroy` after.
+internal func init_reply(reply : *mut bson_t) : void {
+    ffi::bson_init(reply)
 }
 
 internal func extract_fam_value(reply : *mut bson_t) : Option<Document> {
@@ -93,12 +143,14 @@ internal func reply_as_write_result(reply : *mut bson_t) : WriteResult {
     var upserted = 0i64;
     while(ffi::bson_iter_next(&raw mut it)) {
         const key = std::string_view(ffi::bson_iter_key(&raw it));
-        if(key.equals("matchedCount") || key.equals("n")) {
-            matched = ffi::bson_iter_int32(&raw it) as i64;
+        // `deletedCount` is what a current server sends for a delete; `n` is
+        // the legacy spelling. Reading only `n` made every delete report 0.
+        if(key.equals("matchedCount") || key.equals("deletedCount") || key.equals("n")) {
+            matched = reply_count(&raw it);
         } else if(key.equals("modifiedCount") || key.equals("nModified")) {
-            modified = ffi::bson_iter_int32(&raw it) as i64;
+            modified = reply_count(&raw it);
         } else if(key.equals("upsertedCount")) {
-            upserted = ffi::bson_iter_int32(&raw it) as i64;
+            upserted = reply_count(&raw it);
         }
     }
     return WriteResult.make(matched, modified, upserted);
@@ -191,10 +243,82 @@ public struct Collection {
         return Result.Ok<Unit, Error>(Unit{})
     }
 
+    // The `*_with_result` family returns the server's reply counts.
+    //
+    // The plain `update_one` / `delete_one` / `delete_many` / `update_many` /
+    // `replace_one` variants pass `null` as the reply slot, so they can only
+    // report "the command did not error". That is NOT the same as "a document
+    // was written": libmongoc returns true for a selector that matched zero
+    // documents. A caller that must know whether it actually changed something
+    // (a delete the user was told succeeded, an idempotent retry) needs these.
     public func update_one_with_result(&self, selector : &Document, update : &Document, opts : &Document = &EmptyOpts) : Result<WriteResult, Error> {
+        if(self.handle == null || selector.handle == null || update.handle == null) return Result.Err<WriteResult, Error>(Error.Runtime("Invalid handle"))
         var error : bson_error_t;
         var reply : bson_t;
+        init_reply(&raw mut reply);
         const res = ffi::mongoc_collection_update_one(self.handle, selector.handle, update.handle, opts.handle, &raw mut reply, &raw mut error);
+        if(!res) {
+            ffi::bson_destroy(&raw mut reply);
+            return Result.Err<WriteResult, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&raw error.message[0])))
+        }
+        const wr = reply_as_write_result(&raw mut reply);
+        ffi::bson_destroy(&raw mut reply);
+        return Result.Ok<WriteResult, Error>(wr)
+    }
+
+    public func replace_one_with_result(&self, selector : &Document, replacement : &Document, opts : &Document = &EmptyOpts) : Result<WriteResult, Error> {
+        if(self.handle == null || selector.handle == null || replacement.handle == null) return Result.Err<WriteResult, Error>(Error.Runtime("Invalid handle"))
+        var error : bson_error_t;
+        var reply : bson_t;
+        init_reply(&raw mut reply);
+        const res = ffi::mongoc_collection_replace_one(self.handle, selector.handle, replacement.handle, opts.handle, &raw mut reply, &raw mut error);
+        if(!res) {
+            ffi::bson_destroy(&raw mut reply);
+            return Result.Err<WriteResult, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&raw error.message[0])))
+        }
+        const wr = reply_as_write_result(&raw mut reply);
+        ffi::bson_destroy(&raw mut reply);
+        return Result.Ok<WriteResult, Error>(wr)
+    }
+
+    public func update_many_with_result(&self, selector : &Document, update : &Document, opts : &Document = &EmptyOpts) : Result<WriteResult, Error> {
+        if(self.handle == null || selector.handle == null || update.handle == null) return Result.Err<WriteResult, Error>(Error.Runtime("Invalid handle"))
+        var error : bson_error_t;
+        var reply : bson_t;
+        init_reply(&raw mut reply);
+        const res = ffi::mongoc_collection_update_many(self.handle, selector.handle, update.handle, opts.handle, &raw mut reply, &raw mut error);
+        if(!res) {
+            ffi::bson_destroy(&raw mut reply);
+            return Result.Err<WriteResult, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&raw error.message[0])))
+        }
+        const wr = reply_as_write_result(&raw mut reply);
+        ffi::bson_destroy(&raw mut reply);
+        return Result.Ok<WriteResult, Error>(wr)
+    }
+
+    // `matched_count` is the number of documents REMOVED.
+    public func delete_one_with_result(&self, selector : &Document, opts : &Document = &EmptyOpts) : Result<WriteResult, Error> {
+        if(self.handle == null || selector.handle == null) return Result.Err<WriteResult, Error>(Error.Runtime("Invalid handle"))
+        var error : bson_error_t;
+        var reply : bson_t;
+        init_reply(&raw mut reply);
+        const res = ffi::mongoc_collection_delete_one(self.handle, selector.handle, opts.handle, &raw mut reply, &raw mut error);
+        if(!res) {
+            ffi::bson_destroy(&raw mut reply);
+            return Result.Err<WriteResult, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&raw error.message[0])))
+        }
+        const wr = reply_as_write_result(&raw mut reply);
+        ffi::bson_destroy(&raw mut reply);
+        return Result.Ok<WriteResult, Error>(wr)
+    }
+
+    // `matched_count` is the number of documents REMOVED.
+    public func delete_many_with_result(&self, selector : &Document, opts : &Document = &EmptyOpts) : Result<WriteResult, Error> {
+        if(self.handle == null || selector.handle == null) return Result.Err<WriteResult, Error>(Error.Runtime("Invalid handle"))
+        var error : bson_error_t;
+        var reply : bson_t;
+        init_reply(&raw mut reply);
+        const res = ffi::mongoc_collection_delete_many(self.handle, selector.handle, opts.handle, &raw mut reply, &raw mut error);
         if(!res) {
             ffi::bson_destroy(&raw mut reply);
             return Result.Err<WriteResult, Error>(Error.Bson(error.domain, error.code, std::string.make_no_len(&raw error.message[0])))
@@ -319,6 +443,7 @@ public struct Collection {
         if(sort.is_valid()) { opts.set_sort(sort); }
         opts.set_flags(if(return_doc == FindAndModifyReturn.After) FindAndModifyFlags.ReturnNew else FindAndModifyFlags.None);
         var reply : bson_t;
+        init_reply(&raw mut reply);
         var error : bson_error_t;
         const res = ffi::mongoc_collection_find_and_modify_with_opts(self.handle, filter.handle, opts.handle, &raw mut reply, &raw mut error);
         if(!res) {
@@ -335,6 +460,7 @@ public struct Collection {
         opts.set_flags(FindAndModifyFlags.Remove);
         if(sort.is_valid()) { opts.set_sort(sort); }
         var reply : bson_t;
+        init_reply(&raw mut reply);
         var error : bson_error_t;
         const res = ffi::mongoc_collection_find_and_modify_with_opts(self.handle, filter.handle, opts.handle, &raw mut reply, &raw mut error);
         if(!res) {
@@ -352,6 +478,7 @@ public struct Collection {
         if(sort.is_valid()) { opts.set_sort(sort); }
         opts.set_flags(if(return_doc == FindAndModifyReturn.After) FindAndModifyFlags.ReturnNew else FindAndModifyFlags.None);
         var reply : bson_t;
+        init_reply(&raw mut reply);
         var error : bson_error_t;
         const res = ffi::mongoc_collection_find_and_modify_with_opts(self.handle, filter.handle, opts.handle, &raw mut reply, &raw mut error);
         if(!res) {

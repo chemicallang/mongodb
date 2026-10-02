@@ -755,7 +755,7 @@ func test_crud_operations(env : &mut TestEnv) {
     var update_doc = mongodb::Document();
     var set_doc = mongodb::Document();
     set_doc.append_int32("value", 43);
-    update_doc.append_document("\\", &set_doc);
+    update_doc.append_document("$set", &set_doc);
     var update_res = coll.update_one(&update_selector, &update_doc);
     if(update_res is Result.Err) { env.error("Update failed"); return; }
 
@@ -898,7 +898,7 @@ func test_update_one_with_result_counts(env : &mut TestEnv) {
     var set = mongodb::Document();
     set.append_int32("v", 2);
     var update = mongodb::Document();
-    update.append_document("$", &set);
+    update.append_document("$set", &set);
 
     var upd = coll.update_one_with_result(&filter, &update);
     if(upd is Result.Err) { env.error("update_one_with_result failed"); return; }
@@ -956,7 +956,7 @@ func test_update_many_with_result_counts(env : &mut TestEnv) {
     var set = mongodb::Document();
     set.append_utf8("g", "b");
     var update = mongodb::Document();
-    update.append_document("$", &set);
+    update.append_document("$set", &set);
 
     var upd = coll.update_many_with_result(&filter, &update);
     if(upd is Result.Err) { env.error("update_many_with_result failed"); return; }
@@ -1025,7 +1025,7 @@ func test_update_many(env : &mut TestEnv) {
     var update = mongodb::Document();
     var set = mongodb::Document();
     set.append_utf8("group", "b");
-    update.append_document("\\", &set);
+    update.append_document("$set", &set);
 
     var update_res = coll.update_many(&filter, &update);
     if(update_res is Result.Err) { env.error("update_many failed"); return; }
